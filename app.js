@@ -52,6 +52,51 @@
     } catch (e) { return null; }
   }
 
+  // ---------- kolor aplikacji ----------
+  const DEFAULT_THEME = "#6E3A52";
+  const PRESETS = [
+    ["Śliwka", "#6E3A52"], ["Pudrowy róż", "#B5677D"], ["Bordo", "#7A2335"], ["Brzoskwinia", "#B9663F"],
+    ["Szałwia", "#5F7A61"], ["Lawenda", "#6B5B95"], ["Morski", "#2F6F78"], ["Grafit", "#3D3D45"]
+  ];
+  const rgb = h => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+  const hex = c => "#" + c.map(x => Math.round(Math.max(0, Math.min(255, x))).toString(16).padStart(2, "0")).join("");
+  const mix = (a, b, t) => { const A = rgb(a), B = rgb(b); return hex(A.map((x, i) => x + (B[i] - x) * t)); };
+  const lum = h => { const [r, g, b] = rgb(h).map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }); return .2126 * r + .7152 * g + .0722 * b; };
+
+  function themeCss(a) {
+    if (!/^#[0-9a-fA-F]{6}$/.test(a) || a.toUpperCase() === DEFAULT_THEME) return "";
+    let acc = a;
+    while (lum(acc) > .2) acc = mix(acc, "#000000", .12);          // akcent musi być czytelny na jasnym tle
+    const light = {
+      "--bg": mix(acc, "#FFFFFF", .955), "--surface": "#FFFFFF", "--ink": mix(acc, "#141414", .78),
+      "--muted": mix(acc, "#7A7A7A", .62), "--line": mix(acc, "#FFFFFF", .86),
+      "--plum": acc, "--plum-ink": "#FFFFFF", "--rose": mix(acc, "#FFFFFF", .38), "--rose-soft": mix(acc, "#FFFFFF", .89)
+    };
+    let accD = mix(a, "#FFFFFF", .42);
+    while (lum(accD) < .35) accD = mix(accD, "#FFFFFF", .15);       // jasny akcent na ciemnym tle
+    const dark = {
+      "--bg": mix(a, "#100E10", .88), "--surface": mix(a, "#1B181B", .84), "--ink": mix(a, "#FFFFFF", .9),
+      "--muted": mix(a, "#B8B8B8", .68), "--line": mix(a, "#2B272A", .78),
+      "--plum": accD, "--plum-ink": mix(a, "#000000", .78), "--rose": mix(a, "#FFFFFF", .55), "--rose-soft": mix(a, "#1B181B", .72)
+    };
+    const decl = o => Object.entries(o).map(([k, v]) => k + ":" + v).join(";");
+    return ":root{" + decl(light) + "}@media (prefers-color-scheme: dark){:root{" + decl(dark) + "}}";
+  }
+
+  let themeColor = LS.get("ms-theme") || DEFAULT_THEME;
+  function applyTheme(color, remember) {
+    themeColor = color;
+    const css = themeCss(color);
+    let el = document.getElementById("theme");
+    if (!el) { el = document.createElement("style"); el.id = "theme"; document.head.appendChild(el); }
+    el.textContent = css;
+    if (remember !== false) {
+      LS.set("ms-theme", color);
+      try { if (css) localStorage.setItem("ms-theme-css", css); else localStorage.removeItem("ms-theme-css"); } catch (e) {}
+    }
+  }
+  applyTheme(themeColor, false);
+
   const cache = LS.get("ms-cache") || {};
   let db = { clients: cache.clients || [], services: cache.services || [], visits: cache.visits || [] };
   let config = cache.config || {};
@@ -103,7 +148,10 @@
     setSync(true);
     try {
       const r = await api(withLists ? "bootstrap" : "visits", { from, to });
-      if (withLists) { db.clients = r.clients; db.services = r.services; config = r.config || {}; }
+      if (withLists) {
+        db.clients = r.clients; db.services = r.services; config = r.config || {};
+        if (config.theme && config.theme !== themeColor) applyTheme(config.theme);
+      }
       mergeVisits(from, to, r.visits);
       persist();
       return true;
@@ -533,30 +581,106 @@
   }
 
   // ---------- client sheet ----------
+  const WDS = ["nd", "pn", "wt", "śr", "cz", "pt", "sb"];
+  function fullDate(d) { return WDS[d.getDay()] + ", " + dm(d) + "." + d.getFullYear() + " · " + hm(d); }
+
+  function histHtml(list, showAll) {
+    const now = new Date();
+    const done = list.filter(v => v.status !== "no" && parse(v.end) < now);
+    const next = list.filter(v => v.status !== "no" && parse(v.end) >= now).sort((a, b) => a.start.localeCompare(b.start));
+    const past = list.filter(v => !next.includes(v)).sort((a, b) => b.start.localeCompare(a.start));
+    const cancelled = list.filter(v => v.status === "no").length;
+    if (!list.length) return '<div class="empty" style="margin-top:4px"><strong>Brak wizyt</strong>Nie ma jej wizyt w kalendarzu z ostatnich 3 lat.</div>';
+
+    const spent = done.reduce((a, v) => a + (priceOf(v) || 0), 0);
+    const doneAsc = done.map(v => parse(v.start)).sort((a, b) => a - b);
+    const last = doneAsc[doneAsc.length - 1];
+
+    const counts = {};
+    done.forEach(v => { const n = v.serviceName || v.title; counts[n] = (counts[n] || 0) + 1; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+
+    const facts = [];
+    if (top) facts.push("Najczęściej: <b>" + esc(top[0]) + "</b> (" + top[1] + "×)");
+    if (doneAsc.length >= 2) {
+      const days = (doneAsc[doneAsc.length - 1] - doneAsc[0]) / 864e5 / (doneAsc.length - 1);
+      facts.push("Przychodzi średnio co <b>" + (days < 10 ? Math.round(days) + " dni" : "ok. " + Math.round(days / 7) + " tyg.") + "</b>");
+    }
+    if (last && !next.length) {
+      const ago = Math.floor((now - last) / 864e5);
+      facts.push("Od ostatniej wizyty: <b>" + (ago < 14 ? ago + " " + plural(ago, "dzień", "dni", "dni") : Math.floor(ago / 7) + " tyg.") + "</b>, bez kolejnego terminu");
+    }
+    if (cancelled) facts.push("Odwołane: <b>" + cancelled + "</b>");
+
+    const row = v => {
+      const d = parse(v.start), st = statusOf(v), price = priceOf(v);
+      const side = st.k === "no" || st.k === "ok" || st.k === "sent" || st.k === "wait" && next.includes(v)
+        ? '<span class="pill ' + st.k + '">' + esc(st.k === "wait" ? "Zaplanowana" : st.k === "sent" ? "SMS wysłany" : st.t) + '</span>'
+        : (price != null ? zl(price) : "");
+      return '<button type="button" class="row" data-hv="' + esc(v.id) + '"><span class="main"><b>' + esc(v.serviceName || v.title) + '</b><span>' + fullDate(d) + '</span></span><span class="side">' + side + '</span></button>';
+    };
+    const LIMIT = 15;
+    const pastShown = showAll ? past : past.slice(0, LIMIT);
+
+    return '<div class="summary">' +
+      '<div><b>' + done.length + '</b><span>' + plural(done.length, "wizyta", "wizyty", "wizyt") + '</span></div>' +
+      '<div><b>' + zl(spent) + '</b><span>wydane</span></div>' +
+      '<div><b>' + (last ? dm(last) + "." + String(last.getFullYear()).slice(2) : "–") + '</b><span>ostatnio</span></div></div>' +
+      (facts.length ? '<div class="facts">' + facts.map(f => "<span>" + f + "</span>").join("") + '</div>' : "") +
+      (next.length ? '<p class="cat">Zaplanowane</p><div class="rows">' + next.map(row).join("") + '</div>' : "") +
+      (past.length ? '<p class="cat">Historia</p><div class="rows">' + pastShown.map(row).join("") + '</div>' : "") +
+      (past.length > pastShown.length ? '<div class="actions"><button type="button" class="btn ghost small" id="histAll">Pokaż wszystkie (' + past.length + ')</button></div>' : "");
+  }
+
+  function loadHistory(c, el) {
+    const draw = (list, note) => {
+      let showAll = false;
+      const paint = () => {
+        el.innerHTML = (note ? '<p class="note" style="margin-top:0">' + note + '</p>' : "") + histHtml(list, showAll);
+        el.querySelectorAll("[data-hv]").forEach(b => b.addEventListener("click", () => openVisit(b.dataset.hv)));
+        const all = $("#histAll", el); if (all) all.onclick = () => { showAll = true; paint(); };
+        const retry = $("#histRetry", el); if (retry) retry.onclick = () => loadHistory(c, el);
+      };
+      paint();
+    };
+    const local = () => db.visits.filter(v => clientOf(v) === c);
+    draw(local(), "Wczytuję pełną historię z kalendarza…");
+    api("clientHistory", { clientId: c.id }).then(r => {
+      r.visits.forEach(upsertVisit); persist();
+      if (el.isConnected) draw(r.visits);
+    }).catch(e => {
+      if (el.isConnected) draw(local(), esc(e.message) + ' Pokazuję tylko ostatnio pobrane wizyty. <button type="button" class="btn ghost small" id="histRetry">Spróbuj ponownie</button>');
+    });
+  }
+
   function openClient(id) {
     const c = id ? cliById(id) : null;
-    const vs = c ? db.visits.filter(v => clientOf(v) === c).sort((a, b) => b.start.localeCompare(a.start)) : [];
-    const spent = vs.filter(v => v.status !== "no" && parse(v.end) < new Date()).reduce((a, v) => a + (priceOf(v) || 0), 0);
-    openSheet(
-      '<h3>' + (c ? esc(c.name) : "Nowa klientka") + '</h3>' +
-      (c ? '<p class="sub">' + vs.length + ' ' + plural(vs.length, "wizyta", "wizyty", "wizyt") + ' w ostatnich tygodniach · ' + zl(spent) + ' za odbyte</p>'
-         : '<p class="sub">Numer jest potrzebny do przypomnień SMS.</p>') +
-      '<form class="form" id="cf" novalidate>' +
+    const form =
+      '<form class="form" id="cf" novalidate' + (c ? " hidden" : "") + '>' +
       '<div class="f"><label for="cfName">Imię i nazwisko</label><input id="cfName" value="' + esc(c ? c.name : "") + '" autocomplete="off"></div>' +
       '<div class="f"><label for="cfPhone">Telefon</label><input id="cfPhone" type="tel" inputmode="tel" value="' + esc(c ? phoneFmt(c.phone) : "") + '" placeholder="600 000 000"></div>' +
       '<div class="f"><label for="cfNote">Notatki</label><textarea id="cfNote" placeholder="np. ulubiony kształt, wrażliwa skóra">' + esc(c ? c.note : "") + '</textarea></div>' +
       '<p class="err" id="cfErr" hidden></p>' +
-      (vs.length ? '<div class="rows" style="margin-top:0">' + vs.slice(0, 6).map(v => {
-        const d = parse(v.start), st = statusOf(v);
-        return '<div class="row"><span class="main"><b>' + esc(v.serviceName || v.title) + '</b><span>' + dm(d) + '.' + d.getFullYear() + ', ' + hm(d) + '</span></span><span class="pill ' + st.k + '">' + esc(st.k === "wait" ? "Zaplanowana" : st.k === "sent" ? "SMS wysłany" : st.t) + '</span></div>';
-      }).join("") + '</div>' : "") +
       '<div class="actions"><button type="submit" class="btn" id="cfSave">' + (c ? "Zapisz" : "Dodaj klientkę") + '</button>' +
-      (c ? '<button type="button" class="btn ghost" id="cfBook">Umów wizytę</button>' : '<button type="button" class="btn ghost" id="cfCancel">Anuluj</button>') + '</div>' +
-      (c ? '<p class="note">Zmiana imienia lub numeru zaktualizuje też jej przyszłe wizyty w kalendarzu.</p>' : "") + '</form>',
+      '<button type="button" class="btn ghost" id="cfCancel">Anuluj</button></div>' +
+      (c ? '<p class="note">Zmiana imienia lub numeru zaktualizuje też jej przyszłe wizyty w kalendarzu.</p>' : "") + '</form>';
+
+    openSheet(
+      '<h3>' + (c ? esc(c.name) : "Nowa klientka") + '</h3>' +
+      (c ? '<p class="sub"><span class="phone">' + esc(phoneFmt(c.phone)) + '</span>' + (c.note ? " · " + esc(c.note) : "") + '</p>' +
+           '<div id="cView"><div class="actions"><button type="button" class="btn" id="cfBook">Umów wizytę</button>' +
+           '<button type="button" class="btn ghost" id="cfEdit">Edytuj dane</button></div>' +
+           '<div id="hist" class="hist"></div></div>'
+         : '<p class="sub">Numer jest potrzebny do przypomnień SMS.</p>') + form,
       sh => {
-        const cancel = $("#cfCancel", sh); if (cancel) cancel.onclick = closeSheet;
-        const book = $("#cfBook", sh); if (book) book.onclick = () => openVisitForm(null, { clientId: c.id, day: selDay });
-        $("#cf", sh).addEventListener("submit", e => {
+        const formEl = $("#cf", sh), view = $("#cView", sh);
+        $("#cfCancel", sh).onclick = () => { if (c) { formEl.hidden = true; view.hidden = false; } else closeSheet(); };
+        if (c) {
+          $("#cfBook", sh).onclick = () => openVisitForm(null, { clientId: c.id, day: selDay });
+          $("#cfEdit", sh).onclick = () => { view.hidden = true; formEl.hidden = false; $("#cfName", sh).focus(); };
+          loadHistory(c, $("#hist", sh));
+        }
+        formEl.addEventListener("submit", e => {
           e.preventDefault();
           const nm = $("#cfName", sh).value.trim(), ph = digits($("#cfPhone", sh).value), er = $("#cfErr", sh);
           er.hidden = true;
@@ -626,7 +750,12 @@
   // ---------- settings ----------
   function openSettings() {
     openSheet(
-      '<h3>Ustawienia</h3><p class="sub">Połączenie z Kalendarzem Google i bramką SMS.</p>' +
+      '<h3>Ustawienia</h3>' +
+      (cfg ? '<div class="f"><label>Kolor aplikacji</label><div class="swatches" id="swatches">' +
+        PRESETS.map(([n, c]) => '<button type="button" class="sw" data-c="' + c + '" style="background:' + c + '" aria-label="' + n + '" title="' + n + '"></button>').join("") +
+        '<label class="sw custom" title="Własny kolor" aria-label="Własny kolor"><input type="color" id="swCustom" value="' + themeColor + '"></label>' +
+        '</div><p class="note" id="swNote" style="margin-top:6px">Kolor zobaczysz też na stronie potwierdzenia wizyty dla klientek.</p></div><hr class="sep">' : "") +
+      '<p class="sub">Połączenie z Kalendarzem Google i bramką SMS.</p>' +
       '<form class="form" id="setf" novalidate>' +
       '<div class="f"><label for="setCode">Kod konfiguracji</label><textarea id="setCode" placeholder="Wklej kod z maila (opcjonalnie)" style="min-height:56px"></textarea></div>' +
       '<div class="f"><label for="setUrl">Adres skryptu (kończy się na /exec)</label><input id="setUrl" type="url" value="' + esc(cfg ? cfg.u : "") + '" placeholder="https://script.google.com/macros/s/…/exec"></div>' +
@@ -640,6 +769,23 @@
         '<p class="note">Test wysyła prawdziwy SMS przez SMSAPI, także w trybie testowym. Kosztuje tyle co jeden SMS.</p></form>' : "") +
       '<p class="note">' + (config.dryRun ? "Skrypt działa w trybie testowym (DRY_RUN)." : cfg ? "Przypomnienia SMS są włączone." : "") + '</p>',
       sh => {
+        const sws = $("#swatches", sh);
+        if (sws) {
+          const note = $("#swNote", sh);
+          const mark = () => sws.querySelectorAll(".sw[data-c]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c.toUpperCase() === themeColor.toUpperCase())));
+          let saveT, prev = themeColor;
+          const pick = c => {
+            applyTheme(c.toUpperCase()); mark();
+            clearTimeout(saveT);
+            saveT = setTimeout(async () => {
+              try { await api("saveTheme", { color: themeColor }); prev = themeColor; config.theme = themeColor; persist(); note.textContent = "Zapisano. Kolor obowiązuje na wszystkich urządzeniach."; }
+              catch (e) { note.textContent = "Nie udało się zapisać koloru: " + e.message; applyTheme(prev); mark(); }
+            }, 600);
+          };
+          mark();
+          sws.querySelectorAll(".sw[data-c]").forEach(b => b.addEventListener("click", () => pick(b.dataset.c)));
+          $("#swCustom", sh).addEventListener("input", e => pick(e.target.value));
+        }
         const code = $("#setCode", sh);
         code.addEventListener("input", () => {
           const o = decodeCfg(code.value);
@@ -662,6 +808,7 @@
               LS.set("ms-cfg", cfg);
               db = { clients: r.clients, services: r.services, visits: [] }; loaded.clear();
               config = r.config || {}; mergeVisits(from, to, r.visits); persist();
+              if (config.theme) applyTheme(config.theme);
               closeSheet(); render(); toast("Połączono z kalendarzem");
             } catch (e2) { cfg = prev; er.textContent = e2.message; er.hidden = false; }
           });

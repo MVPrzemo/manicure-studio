@@ -1,5 +1,5 @@
 /* Service worker: aplikacja otwiera się też bez internetu (dane z ostatniej synchronizacji). */
-const CACHE = "manicure-studio-v1";
+const CACHE = "manicure-studio-v3";
 const SHELL = [
   "./", "./index.html", "./app.js", "./manifest.webmanifest",
   "./icons/logo.jpg", "./icons/logo-full.jpg", "./icons/icon-192.png", "./icons/icon-512.png"

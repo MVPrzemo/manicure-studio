@@ -194,10 +194,22 @@ button.row:hover { background: var(--rose-soft); }
 .note { font-size: .82rem; color: var(--muted); margin: 12px 0 0; }
 .phone { user-select: all; }
 .okmsg { color: var(--ok); font-size: .88rem; }
+.hist { margin-top: 16px; }
+.hist .summary { margin-top: 0; }
+.hist .cat { margin-top: 16px; }
+.hist .rows { margin-top: 8px; }
+.facts { display: grid; gap: 4px; margin-top: 10px; font-size: .9rem; color: var(--muted); }
+.facts b { color: var(--ink); font-weight: 500; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.sw { width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line); padding: 0; }
+.sw[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); }
+.sw.custom { position: relative; overflow: hidden; background: conic-gradient(#e35d6a, #f0b44c, #7cc576, #4fa3d9, #8a6ad8, #e35d6a); }
+.sw.custom input { position: absolute; inset: -8px; width: 60px; height: 60px; opacity: 0; cursor: pointer; }
 hr.sep { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--nav-h) + 86px + env(safe-area-inset-bottom, 0px)); z-index: 30; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: .9rem; box-shadow: var(--shadow); width: max-content; max-width: calc(100% - 32px); }
 </style>
+<script>try { var c = localStorage.getItem("ms-theme-css"); if (c) document.write('<style id="theme">' + c + '</style>'); } catch (e) {}</script>
 </head>
 <body>
 
