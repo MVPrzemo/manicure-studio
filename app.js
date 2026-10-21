@@ -232,11 +232,24 @@
     return { k: "wait", t: "Przypomnienie " + dm(smsAt) + ", " + hm(smsAt) };
   }
 
+  // ta sama logika co fitMessage_ w skrypcie: najdłuższa wersja mieszcząca się w 1 SMS-ie
+  const smsLen = s => { const n = String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[łŁ]/g, "l"); return n.length + (n.match(/[\^{}\\\[\]~|€]/g) || []).length; };
   function smsText(clientName, serviceName, start) {
     const first = String(clientName || "").trim().split(/\s+/)[0];
-    return "Dzień dobry" + (first ? " " + first : "") + "! Przypominamy o wizycie" +
-      (serviceName ? " (" + serviceName + ")" : "") + " " + dm(start) + " o " + hm(start) +
-      ". Potwierdź lub odwołaj: [link] " + (config.salon || "Manicure Studio");
+    const salon = config.salonName || config.salon || "Manicure Studio";
+    const link = (config.linkBase || "https://mvprzemo.github.io/manicure-studio/p/?") + "k3x9a2";
+    const day = dm(start), time = hm(start);
+    const hi = "Dzień dobry" + (first ? " " + first : "") + "! ";
+    const svc = serviceName ? " (" + serviceName + ")" : "";
+    const variants = [
+      hi + "Przypominamy o wizycie" + svc + " " + day + " o " + time + ". Potwierdź lub odwołaj: " + link + " " + salon,
+      hi + "Przypominamy o wizycie" + svc + " " + day + " o " + time + ". Potwierdź lub odwołaj: " + link,
+      hi + "Przypominamy o wizycie " + day + " o " + time + ". Potwierdź lub odwołaj: " + link,
+      salon + ": wizyta " + day + " o " + time + ". Potwierdź lub odwołaj: " + link,
+      "Wizyta " + day + " o " + time + ". Potwierdź lub odwołaj: " + link
+    ];
+    const text = variants.find(v => smsLen(v) <= 160) || variants[variants.length - 1];
+    return { text, len: smsLen(text) };
   }
 
   // ---------- state ----------
@@ -558,7 +571,7 @@
             '<div class="line"><span>' + hm(start) + ' – ' + hm(end) + ' (' + dur(s.min) + ')</span><b>' + zl(s.price) + '</b></div>' +
             (end.getDate() !== start.getDate() || end.getHours() * 60 + end.getMinutes() > 21 * 60 ? '<div class="warn">Wizyta kończy się po 21:00.</div>' : "") +
             clash.map(x => '<div class="warn">Nakłada się na: ' + esc(x.clientName || x.title) + ', ' + hm(parse(x.start)) + '–' + hm(parse(x.end)) + '</div>').join("") +
-            '<div class="sms">' + esc(smsText(name, s.name, start)) + '</div><div class="sms-meta">' + when + '</div>';
+            (sms => '<div class="sms">' + esc(sms.text) + '</div><div class="sms-meta">' + when + ' ' + sms.len + '/160 znaków, 1 SMS.</div>')(smsText(name, s.name, start));
         };
         ["vfClient", "vfSvc", "vfDate", "vfTime", "vfName"].forEach(i => f(i).addEventListener("input", update));
         f("vfClient").addEventListener("change", () => { update(); if (f("vfClient").value === "__new") f("vfName").focus(); });
