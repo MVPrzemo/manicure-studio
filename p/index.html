@@ -9,7 +9,7 @@
   // Adres wdrożenia Apps Script (kończy się na /exec). Przy nowym salonie podmień tylko tę linię.
   var EXEC = "https://script.google.com/macros/s/AKfycbwrz6-xKfXNSe-kLI0c1YeJZRfZ0o_vod4oMv5KyDXcUouLjXVvN7YuNpZ2c-IKHJ4y9Q/exec";
   var code = (location.search.match(/^\?([a-z0-9]{4,12})/) || [])[1];
-  location.replace(EXEC + (code ? "?c=" + code : ""));
+  location.replace(EXEC + (code ? "?k=" + code : ""));
 </script>
 <style>
   body { margin: 0; font: 17px/1.5 system-ui, sans-serif; background: #FAF5F3; color: #3A2430; display: grid; place-items: center; min-height: 100vh; text-align: center; padding: 24px; box-sizing: border-box; }
@@ -18,6 +18,6 @@
 </head>
 <body>
   <p>Otwieram potwierdzenie wizyty…<br><a id="go" href="#">Dotknij tutaj, jeśli nic się nie dzieje</a></p>
-  <script>document.getElementById("go").href = EXEC + (code ? "?c=" + code : "");</script>
+  <script>document.getElementById("go").href = EXEC + (code ? "?k=" + code : "");</script>
 </body>
 </html>
