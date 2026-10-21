@@ -26,8 +26,9 @@
   --nav-h: 64px;
   color-scheme: light;
 }
+/* tło: automatyczne (jak telefon), albo wymuszone data-mode="light" / "dark" */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-mode="light"]) {
     --bg: #1A1216; --surface: #251A20; --ink: #F3E7EB; --muted: #B59EA9; --line: #3A2A32;
     --plum: #E2A9C1; --plum-ink: #2A1520; --rose: #D9A797; --rose-soft: #35242A;
     --ok: #8AD3A9; --ok-bg: #1F3A2C; --sent: #A9B9EC; --sent-bg: #252E4A;
@@ -35,6 +36,14 @@
     --done: #B8A9B0; --done-bg: #33282D; --shadow: 0 8px 28px rgba(0,0,0,.45);
     color-scheme: dark;
   }
+}
+:root[data-mode="dark"] {
+    --bg: #1A1216; --surface: #251A20; --ink: #F3E7EB; --muted: #B59EA9; --line: #3A2A32;
+    --plum: #E2A9C1; --plum-ink: #2A1520; --rose: #D9A797; --rose-soft: #35242A;
+    --ok: #8AD3A9; --ok-bg: #1F3A2C; --sent: #A9B9EC; --sent-bg: #252E4A;
+    --wait: #E6C07A; --wait-bg: #3D311B; --no: #F0A0A5; --no-bg: #46232A;
+    --done: #B8A9B0; --done-bg: #33282D; --shadow: 0 8px 28px rgba(0,0,0,.45);
+    color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -205,11 +214,15 @@ button.row:hover { background: var(--rose-soft); }
 .sw[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); }
 .sw.custom { position: relative; overflow: hidden; background: conic-gradient(#e35d6a, #f0b44c, #7cc576, #4fa3d9, #8a6ad8, #e35d6a); }
 .sw.custom input { position: absolute; inset: -8px; width: 60px; height: 60px; opacity: 0; cursor: pointer; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.seg button { background: none; border: 0; padding: 10px 6px; font-size: .9rem; color: var(--ink); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--plum); color: var(--plum-ink); font-weight: 500; }
 hr.sep { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--nav-h) + 86px + env(safe-area-inset-bottom, 0px)); z-index: 30; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: .9rem; box-shadow: var(--shadow); width: max-content; max-width: calc(100% - 32px); }
 </style>
-<script>try { var c = localStorage.getItem("ms-theme-css"); if (c) document.write('<style id="theme">' + c + '</style>'); } catch (e) {}</script>
+<script>try { var m = JSON.parse(localStorage.getItem("ms-mode") || "null"); if (m === "light" || m === "dark") document.documentElement.setAttribute("data-mode", m); var c = localStorage.getItem("ms-theme-css"); if (c) document.write('<style id="theme">' + c + '</style>'); } catch (e) {}</script>
 </head>
 <body>
 

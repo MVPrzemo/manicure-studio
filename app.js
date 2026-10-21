@@ -80,7 +80,7 @@
       "--plum": accD, "--plum-ink": mix(a, "#000000", .78), "--rose": mix(a, "#FFFFFF", .55), "--rose-soft": mix(a, "#1B181B", .72)
     };
     const decl = o => Object.entries(o).map(([k, v]) => k + ":" + v).join(";");
-    return ":root{" + decl(light) + "}@media (prefers-color-scheme: dark){:root{" + decl(dark) + "}}";
+    return ":root{" + decl(light) + "}@media (prefers-color-scheme: dark){:root:not([data-mode=light]){" + decl(dark) + "}}:root[data-mode=dark]{" + decl(dark) + "}";
   }
 
   let themeColor = LS.get("ms-theme") || DEFAULT_THEME;
@@ -90,12 +90,36 @@
     let el = document.getElementById("theme");
     if (!el) { el = document.createElement("style"); el.id = "theme"; document.head.appendChild(el); }
     el.textContent = css;
+    if (typeof syncBarColor === "function" && remember !== false) syncBarColor();
     if (remember !== false) {
       LS.set("ms-theme", color);
       try { if (css) localStorage.setItem("ms-theme-css", css); else localStorage.removeItem("ms-theme-css"); } catch (e) {}
     }
   }
   applyTheme(themeColor, false);
+
+  // tło: "auto" (jak w telefonie), "light", "dark" – ustawienie tego urządzenia
+  let mode = LS.get("ms-mode") || "auto";
+  function applyMode(m) {
+    mode = m;
+    if (m === "light" || m === "dark") document.documentElement.setAttribute("data-mode", m);
+    else document.documentElement.removeAttribute("data-mode");
+    LS.set("ms-mode", m);
+    syncBarColor();
+  }
+  // kolor paska systemowego dopasowany do tła aplikacji
+  function syncBarColor() {
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    document.querySelectorAll('meta[name="theme-color"]').forEach(el => {
+      if (!el.dataset.orig) el.dataset.orig = el.getAttribute("content");
+      el.setAttribute("content", mode === "auto" && !document.getElementById("theme").textContent ? el.dataset.orig : bg);
+    });
+  }
+  applyMode(mode);
+  if (window.matchMedia) {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    if (mq.addEventListener) mq.addEventListener("change", syncBarColor);
+  }
 
   const cache = LS.get("ms-cache") || {};
   let db = { clients: cache.clients || [], services: cache.services || [], visits: cache.visits || [] };
@@ -754,7 +778,11 @@
       (cfg ? '<div class="f"><label>Kolor aplikacji</label><div class="swatches" id="swatches">' +
         PRESETS.map(([n, c]) => '<button type="button" class="sw" data-c="' + c + '" style="background:' + c + '" aria-label="' + n + '" title="' + n + '"></button>').join("") +
         '<label class="sw custom" title="Własny kolor" aria-label="Własny kolor"><input type="color" id="swCustom" value="' + themeColor + '"></label>' +
-        '</div><p class="note" id="swNote" style="margin-top:6px">Kolor zobaczysz też na stronie potwierdzenia wizyty dla klientek.</p></div><hr class="sep">' : "") +
+        '</div><p class="note" id="swNote" style="margin-top:6px">Kolor zobaczysz też na stronie potwierdzenia wizyty dla klientek.</p></div>' : "") +
+      '<div class="f" style="margin-top:14px"><label>Tło</label><div class="seg" id="modeSeg">' +
+        [["auto", "Jak w telefonie"], ["light", "Jasne"], ["dark", "Ciemne"]].map(([m, n]) =>
+          '<button type="button" data-m="' + m + '" aria-pressed="' + (mode === m) + '">' + n + '</button>').join("") +
+      '</div></div><hr class="sep">' +
       '<p class="sub">Połączenie z Kalendarzem Google i bramką SMS.</p>' +
       '<form class="form" id="setf" novalidate>' +
       '<div class="f"><label for="setCode">Kod konfiguracji</label><textarea id="setCode" placeholder="Wklej kod z maila (opcjonalnie)" style="min-height:56px"></textarea></div>' +
@@ -769,6 +797,10 @@
         '<p class="note">Test wysyła prawdziwy SMS przez SMSAPI, także w trybie testowym. Kosztuje tyle co jeden SMS.</p></form>' : "") +
       '<p class="note">' + (config.dryRun ? "Skrypt działa w trybie testowym (DRY_RUN)." : cfg ? "Przypomnienia SMS są włączone." : "") + '</p>',
       sh => {
+        sh.querySelectorAll("#modeSeg button").forEach(b => b.addEventListener("click", () => {
+          applyMode(b.dataset.m);
+          sh.querySelectorAll("#modeSeg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+        }));
         const sws = $("#swatches", sh);
         if (sws) {
           const note = $("#swNote", sh);
