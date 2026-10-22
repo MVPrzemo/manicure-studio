@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Zapisy online – Manicure Studio</title>
+<meta name="description" content="Umów wizytę w Manicure Studio: wybierz usługę i wolny termin.">
+<meta name="theme-color" content="#FAF5F3">
+<link rel="icon" href="../icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Jost:wght@400;500;600&display=swap">
+<script>
+  // Adres wdrożenia Apps Script (kończy się na /exec). Przy nowym salonie podmień tę linię (i tę samą w p/index.html).
+  var EXEC = "https://script.google.com/macros/s/AKfycbwrz6-xKfXNSe-kLI0c1YeJZRfZ0o_vod4oMv5KyDXcUouLjXVvN7YuNpZ2c-IKHJ4y9Q/exec";
+</script>
+<style>
+/* Layout: single column 520px; steps stacked (service, day, time, details); sticky summary bar at the bottom */
+:root {
+  --bg: #FAF5F3; --surface: #FFFFFF; --ink: #3A2430; --muted: #8C7480; --line: #ECDFDB;
+  --accent: #6E3A52; --accent-ink: #FFFFFF; --soft: #F5E7E2; --err: #A93E45; --err-bg: #F8E3E4; --ok: #2F7350; --ok-bg: #E2F1E8;
+  --f-display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --f-body: "Jost", "Futura", "Century Gothic", system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1A1216; --surface: #251A20; --ink: #F3E7EB; --muted: #B59EA9; --line: #3A2A32;
+    --accent: #E2A9C1; --accent-ink: #2A1520; --soft: #35242A; --err: #F0A0A5; --err-bg: #46232A; --ok: #8AD3A9; --ok-bg: #1F3A2C;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 var(--f-body); -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap {
+  max-width: 520px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: calc(20px + env(safe-area-inset-top, 0px)) calc(120px + env(safe-area-inset-bottom, 0px));
+}
+header { text-align: center; display: grid; justify-items: center; gap: 6px; }
+header img { width: 84px; height: 84px; border-radius: 50%; object-fit: cover; border: 1px solid var(--line); background: #F8F8F3; }
+header h1 { margin: 6px 0 0; font: 600 1.9rem/1.05 var(--f-display); letter-spacing: .04em; text-transform: uppercase; }
+header p { margin: 0; color: var(--muted); font-size: .95rem; }
+
+.step { margin-top: 26px; }
+.step h2 { margin: 0 0 10px; font: 600 1.45rem/1.2 var(--f-display); display: flex; align-items: baseline; gap: 10px; }
+.step h2 .n { font: 500 .75rem/1 var(--f-body); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.cat { margin: 14px 0 6px; font-size: .74rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
+
+.svc { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-top: 8px; }
+.svc .main { flex: 1; min-width: 0; }
+.svc b { display: block; font-weight: 500; }
+.svc span { color: var(--muted); font-size: .88rem; }
+.svc .price { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 500; }
+.svc[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--soft); }
+
+.days { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px 8px; margin: 0 -2px; scrollbar-width: none; }
+.days::-webkit-scrollbar { display: none; }
+.day { flex: none; width: 56px; padding: 8px 0; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); display: grid; justify-items: center; gap: 1px; }
+.day .wd { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.day .dn { font: 600 1.45rem/1.05 var(--f-display); }
+.day .mo { font-size: .68rem; color: var(--muted); }
+.day[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.day[aria-pressed="true"] .wd, .day[aria-pressed="true"] .mo { color: var(--accent-ink); opacity: .85; }
+
+.times { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+.time { padding: 10px 0; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-variant-numeric: tabular-nums; font-weight: 500; }
+.time[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.daypart { grid-column: 1 / -1; font-size: .74rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin-top: 6px; }
+
+.form { display: grid; gap: 12px; }
+.f { display: grid; gap: 5px; }
+.f label { font-size: .76rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.f input, .f textarea { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+.f textarea { min-height: 64px; resize: vertical; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: .88rem; color: var(--muted); }
+.check input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+.msg { border-radius: 12px; padding: 12px 14px; font-size: .94rem; }
+.msg.err { color: var(--err); background: var(--err-bg); }
+.empty { color: var(--muted); border: 1px dashed var(--line); border-radius: 14px; padding: 18px; text-align: center; }
+.loading { color: var(--muted); padding: 14px 0; }
+
+.bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--surface); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px); }
+.bar .in { max-width: 520px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.bar .sum { flex: 1; min-width: 0; font-size: .9rem; line-height: 1.3; }
+.bar .sum b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .sum span { color: var(--muted); }
+.btn { border: 0; border-radius: 12px; padding: 13px 18px; font-weight: 500; background: var(--accent); color: var(--accent-ink); white-space: nowrap; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+.done { text-align: center; margin-top: 30px; display: grid; gap: 10px; justify-items: center; }
+.done .tick { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: var(--ok-bg); color: var(--ok); }
+.done h2 { margin: 0; font: 600 1.8rem/1.15 var(--f-display); }
+.done p { margin: 0; color: var(--muted); max-width: 34ch; }
+.done .when { color: var(--ink); font: 600 1.4rem/1.2 var(--f-display); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img id="logo" src="../icons/logo.jpg" alt="">
+    <h1 id="salon">Manicure Studio</h1>
+    <p>Wybierz usługę i wolny termin. Potwierdzimy wizytę SMS-em.</p>
+  </header>
+
+  <main id="main">
+    <p class="loading" id="boot">Wczytuję wolne terminy…</p>
+  </main>
+</div>
+
+<div class="bar" id="bar" hidden>
+  <div class="in">
+    <div class="sum" id="sum"></div>
+    <button class="btn" id="next" type="button" disabled>Dalej</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const WD = ["nd", "pn", "wt", "śr", "cz", "pt", "sb"];
+  const WDL = ["niedziela", "poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota"];
+  const MON = ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"];
+  const MONL = ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca", "sierpnia", "września", "października", "listopada", "grudnia"];
+  const dur = m => m < 60 ? m + " min" : Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " min" : "");
+  const zl = n => Number(n).toLocaleString("pl-PL") + " zł";
+  const parseD = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const longDay = s => { const d = parseD(s); return WDL[d.getDay()] + ", " + d.getDate() + " " + MONL[d.getMonth()]; };
+
+  async function api(action, payload) {
+    let res;
+    try {
+      res = await fetch(EXEC, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(Object.assign({ action }, payload || {})) });
+    } catch (e) { throw new Error("Brak połączenia z internetem. Spróbuj ponownie."); }
+    let data;
+    try { data = await res.json(); } catch (e) { throw new Error("Serwer chwilowo nie odpowiada. Spróbuj za chwilę."); }
+    if (!data.ok) throw new Error(data.error || "Coś poszło nie tak.");
+    return data;
+  }
+
+  // kolor salonu – ta sama zasada co w aplikacji
+  const rgb = h => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+  const hex = c => "#" + c.map(x => Math.round(Math.max(0, Math.min(255, x))).toString(16).padStart(2, "0")).join("");
+  const mix = (a, b, t) => { const A = rgb(a), B = rgb(b); return hex(A.map((x, i) => x + (B[i] - x) * t)); };
+  const lum = h => { const [r, g, b] = rgb(h).map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }); return .2126 * r + .7152 * g + .0722 * b; };
+  function applyTheme(a) {
+    if (!/^#[0-9a-fA-F]{6}$/.test(a || "") || a.toUpperCase() === "#6E3A52") return;
+    let acc = a; while (lum(acc) > .2) acc = mix(acc, "#000000", .12);
+    let accD = mix(a, "#FFFFFF", .42); while (lum(accD) < .35) accD = mix(accD, "#FFFFFF", .15);
+    const L = { "--bg": mix(acc, "#FFFFFF", .955), "--ink": mix(acc, "#141414", .78), "--muted": mix(acc, "#7A7A7A", .62), "--line": mix(acc, "#FFFFFF", .86), "--accent": acc, "--accent-ink": "#FFFFFF", "--soft": mix(acc, "#FFFFFF", .89) };
+    const D = { "--bg": mix(a, "#100E10", .88), "--surface": mix(a, "#1B181B", .84), "--ink": mix(a, "#FFFFFF", .9), "--muted": mix(a, "#B8B8B8", .68), "--line": mix(a, "#2B272A", .78), "--accent": accD, "--accent-ink": mix(a, "#000000", .78), "--soft": mix(a, "#1B181B", .72) };
+    const decl = o => Object.entries(o).map(([k, v]) => k + ":" + v).join(";");
+    const st = document.createElement("style");
+    st.textContent = ":root{" + decl(L) + "}@media (prefers-color-scheme: dark){:root{" + decl(D) + "}}";
+    document.head.appendChild(st);
+    document.querySelector('meta[name="theme-color"]').setAttribute("content", L["--bg"]);
+  }
+
+  // ---------- stan ----------
+  let info = null, svc = null, days = null, day = null, time = null, stage = "pick", notice = "";
+  let savedForm = null;
+  const main = $("#main"), bar = $("#bar"), sum = $("#sum"), next = $("#next");
+
+  function updateBar() {
+    bar.hidden = stage === "done" || !svc;
+    if (!svc) return;
+    sum.innerHTML = "<b>" + esc(svc.name) + "</b><span>" +
+      (day ? longDay(day) + (time ? ", " + time : "") : dur(svc.min) + " · " + zl(svc.price)) + "</span>";
+    next.textContent = stage === "form" ? "Wyślij prośbę" : "Dalej";
+    next.disabled = stage === "pick" ? !(svc && day && time) : false;
+  }
+
+  function render() {
+    if (stage === "done") return;
+    const cats = [...new Set(info.services.map(s => s.cat))];
+    let html =
+      '<section class="step"><h2><span class="n">Krok 1</span>Usługa</h2>' +
+      cats.map(c => '<p class="cat">' + esc(c) + '</p>' + info.services.filter(s => s.cat === c).map(s =>
+        '<button type="button" class="svc" data-s="' + esc(s.id) + '" aria-pressed="' + (svc && svc.id === s.id) + '">' +
+        '<span class="main"><b>' + esc(s.name) + '</b><span>' + dur(s.min) + '</span></span><span class="price">' + zl(s.price) + '</span></button>').join("")).join("") +
+      '</section>';
+
+    if (svc) {
+      html += '<section class="step" id="stepDay"><h2><span class="n">Krok 2</span>Dzień</h2>';
+      if (!days) html += '<p class="loading">Sprawdzam wolne terminy…</p>';
+      else if (!Object.keys(days).length) html += '<div class="empty">Brak wolnych terminów na tę usługę w najbliższych ' + info.bookingDays + ' dniach. Zadzwoń do salonu albo wybierz inną usługę.</div>';
+      else html += '<div class="days">' + Object.keys(days).map(k => {
+        const d = parseD(k);
+        return '<button type="button" class="day" data-d="' + k + '" aria-pressed="' + (k === day) + '" aria-label="' + esc(longDay(k)) + '">' +
+          '<span class="wd">' + WD[d.getDay()] + '</span><span class="dn">' + d.getDate() + '</span><span class="mo">' + MON[d.getMonth()] + '</span></button>';
+      }).join("") + '</div>';
+      html += '</section>';
+    }
+
+    if (svc && days && day && days[day]) {
+      const parts = [["Rano", t => t < "12:00"], ["Po południu", t => t >= "12:00" && t < "16:00"], ["Wieczorem", t => t >= "16:00"]];
+      html += '<section class="step" id="stepTime"><h2><span class="n">Krok 3</span>Godzina</h2>' +
+        (notice ? '<div class="msg err" style="margin-bottom:10px">' + esc(notice) + '</div>' : "") + '<div class="times">' +
+        parts.map(([n, f]) => { const l = days[day].filter(f); return l.length ? '<span class="daypart">' + n + '</span>' + l.map(t => '<button type="button" class="time" data-t="' + t + '" aria-pressed="' + (t === time) + '">' + t + '</button>').join("") : ""; }).join("") +
+        '</div></section>';
+    }
+
+    if (stage === "form") {
+      html += '<section class="step" id="stepForm"><h2><span class="n">Krok 4</span>Twoje dane</h2>' +
+        '<form class="form" id="bf" novalidate>' +
+        '<div class="f"><label for="bName">Imię i nazwisko</label><input id="bName" autocomplete="name" maxlength="60"></div>' +
+        '<div class="f"><label for="bPhone">Telefon</label><input id="bPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="600 000 000"></div>' +
+        '<div class="f"><label for="bNote">Wiadomość (opcjonalnie)</label><textarea id="bNote" maxlength="300" placeholder="np. kolor, wzór, kształt paznokci"></textarea></div>' +
+        '<div class="hp" aria-hidden="true"><label for="bWeb">Strona</label><input id="bWeb" tabindex="-1" autocomplete="off"></div>' +
+        '<label class="check"><input type="checkbox" id="bOk"><span>Zgadzam się na kontakt SMS w sprawie tej wizyty (potwierdzenie i przypomnienie). Dane służą wyłącznie do obsługi wizyty w ' + esc(info.salon) + '.</span></label>' +
+        '<div class="msg err" id="bErr" hidden></div></form></section>';
+    }
+
+    main.innerHTML = html;
+    main.querySelectorAll(".svc").forEach(b => b.onclick = () => pickService(b.dataset.s));
+    main.querySelectorAll(".day").forEach(b => b.onclick = () => { day = b.dataset.d; time = null; stage = "pick"; notice = ""; render(); scrollTo("#stepTime"); });
+    main.querySelectorAll(".time").forEach(b => b.onclick = () => { time = b.dataset.t; stage = "pick"; notice = ""; render(); });
+    const sel = main.querySelector('.day[aria-pressed="true"]');
+    if (sel) sel.scrollIntoView({ block: "nearest", inline: "center" });
+    updateBar();
+  }
+
+  function scrollTo(sel) {
+    const el = document.querySelector(sel);
+    if (el) el.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  }
+
+  async function pickService(id) {
+    svc = info.services.find(s => s.id === id); days = null; day = null; time = null; stage = "pick";
+    render(); scrollTo("#stepDay");
+    try {
+      const r = await api("availability", { serviceId: id });
+      if (!svc || svc.id !== id) return;
+      days = r.days;
+      day = Object.keys(days)[0] || null;
+    } catch (e) { days = {}; main.insertAdjacentHTML("beforeend", '<div class="msg err">' + esc(e.message) + '</div>'); }
+    render();
+  }
+
+  next.addEventListener("click", async () => {
+    if (stage === "pick") {
+      stage = "form"; notice = ""; render();
+      if (savedForm) { $("#bName").value = savedForm.name; $("#bPhone").value = savedForm.phone; $("#bNote").value = savedForm.note; }
+      scrollTo("#stepForm"); setTimeout(() => { const n = $("#bName"); if (n) n.focus({ preventScroll: true }); }, 350); return; }
+    const err = $("#bErr"); err.hidden = true;
+    const name = $("#bName").value.trim(), phone = $("#bPhone").value.replace(/\D/g, "").replace(/^48(?=\d{9}$)/, "");
+    const fail = (m, el) => { err.textContent = m; err.hidden = false; if (el) el.focus(); };
+    if (name.length < 2) return fail("Wpisz imię i nazwisko.", $("#bName"));
+    if (phone.length !== 9) return fail("Numer telefonu musi mieć 9 cyfr.", $("#bPhone"));
+    if (!$("#bOk").checked) return fail("Zaznacz zgodę na kontakt SMS w sprawie wizyty.", $("#bOk"));
+    next.disabled = true; next.textContent = "Wysyłanie…";
+    try {
+      const r = await api("requestBooking", { serviceId: svc.id, start: day + "T" + time, name, phone, note: $("#bNote").value.trim(), consent: true, website: $("#bWeb").value });
+      stage = "done"; bar.hidden = true;
+      main.innerHTML = '<div class="done"><div class="tick"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>' +
+        '<h2>Prośba wysłana</h2><p class="when">' + esc(longDay(day)) + ', ' + esc(time) + '</p><p>' + esc(svc.name) + '</p>' +
+        '<p>Sprawdzimy termin i potwierdzimy wizytę SMS-em na numer ' + esc(phone.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")) + '.</p></div>';
+      window.scrollTo(0, 0);
+    } catch (e) {
+      next.disabled = false; next.textContent = "Wyślij prośbę";
+      fail(e.message);
+      if (/zajęty/.test(e.message)) {
+        const keep = { name, phone: $("#bPhone").value, note: $("#bNote").value };
+        try { const r2 = await api("availability", { serviceId: svc.id }); days = r2.days; if (!days[day]) day = Object.keys(days)[0] || null; } catch (x) {}
+        time = null; stage = "pick"; notice = e.message + " Twoje dane zostaną zachowane."; savedForm = keep; render(); scrollTo("#stepTime");
+      }
+    }
+  });
+
+  (async function start() {
+    try {
+      info = await api("publicInfo");
+      applyTheme(info.theme);
+      $("#salon").textContent = info.salon;
+      document.title = "Zapisy online – " + info.salon;
+      if (!info.bookingOn || !info.services.length) {
+        main.innerHTML = '<div class="empty" style="margin-top:26px">Zapisy online są chwilowo wyłączone. Zadzwoń lub napisz do salonu.</div>';
+        return;
+      }
+      render();
+    } catch (e) {
+      main.innerHTML = '<div class="msg err" style="margin-top:26px">' + esc(e.message) + '</div>';
+    }
+  })();
+})();
+</script>
+</body>
+</html>

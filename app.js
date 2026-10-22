@@ -217,6 +217,7 @@
 
   function statusOf(v) {
     const now = new Date(), s = parse(v.start);
+    if (v.status === "req") return { k: "req", t: "Prośba o wizytę – zaakceptuj lub odrzuć" };
     if (v.status === "no") return { k: "no", t: "Odwołana" };
     if (parse(v.end) < now) return { k: "done", t: "Zakończona" };
     if (v.status === "ok") return { k: "ok", t: "Potwierdzona" };
@@ -309,7 +310,7 @@
     }
 
     const list = visitsOn(selDay);
-    const active = list.filter(v => v.status !== "no");
+    const active = list.filter(v => v.status !== "no" && v.status !== "req");
     const total = active.reduce((a, v) => a + (priceOf(v) || 0), 0);
     const mins = active.reduce((a, v) => a + minsOf(v), 0);
     const conf = active.filter(v => v.status === "ok").length;
@@ -332,7 +333,12 @@
       }).join("") + "</div>";
     }
 
-    el.innerHTML =
+    const reqs = db.visits.filter(v => v.status === "req" && parse(v.end) > new Date()).sort((a, b) => a.start.localeCompare(b.start));
+    const reqHtml = reqs.length ? '<div class="reqbox"><p class="reqtitle">' + reqs.length + ' ' + plural(reqs.length, "nowa prośba", "nowe prośby", "nowych próśb") + ' o wizytę</p>' +
+      reqs.map(v => { const d = parse(v.start); return '<button type="button" class="row" data-visit="' + esc(v.id) + '"><span class="avatar">' + esc(initials(v.clientName)) + '</span>' +
+        '<span class="main"><b>' + esc(v.clientName) + '</b><span>' + esc(v.serviceName) + '</span></span><span class="side">' + WD[d.getDay()] + ' ' + dm(d) + '<small>' + hm(d) + '</small></span></button>'; }).join("") + '</div>' : "";
+
+    el.innerHTML = reqHtml +
       '<div class="strip" id="strip">' + strip + '</div>' +
       '<div class="dayhead"><h2>' + dayLabel(selDay) + '</h2>' +
       '<label class="jump">Inny dzień<input type="date" id="jump" value="' + selDay + '" aria-label="Wybierz dzień"></label></div>' +
@@ -343,7 +349,7 @@
       body;
 
     el.querySelectorAll(".day").forEach(b => b.addEventListener("click", () => selectDay(b.dataset.day)));
-    el.querySelectorAll(".visit").forEach(b => b.addEventListener("click", () => openVisit(b.dataset.visit)));
+    el.querySelectorAll(".visit, .reqbox .row").forEach(b => b.addEventListener("click", () => openVisit(b.dataset.visit)));
     $("#jump").addEventListener("change", e => { if (e.target.value) selectDay(e.target.value); });
     const ea = $("#emptyAdd"); if (ea) ea.addEventListener("click", () => openVisitForm(null, { day: selDay }));
     const selEl = el.querySelector(".day.sel"), stripEl = $("#strip");
@@ -452,6 +458,7 @@
   // ---------- visit details ----------
   function openVisit(id) {
     const v = db.visits.find(x => x.id === id); if (!v) return;
+    if (v.status === "req") return openRequest(v);
     const c = clientOf(v), st = statusOf(v), start = parse(v.start), price = priceOf(v);
     let delArmed = false;
     openSheet(
@@ -496,6 +503,166 @@
             } catch (e) { fail(e); }
           });
         };
+      });
+  }
+
+  // ---------- prośba o wizytę (zapisy online) ----------
+  function openRequest(v) {
+    const start = parse(v.start), price = priceOf(v), known = clientOf(v);
+    const clash = db.visits.filter(x => x.id !== v.id && x.status !== "no" && x.start.slice(0, 10) === v.start.slice(0, 10) && parse(x.start) < parse(v.end) && parse(x.end) > start);
+    let rejArmed = false;
+    openSheet(
+      '<h3>' + esc(v.clientName) + '</h3>' +
+      '<p class="sub">Prośba z zapisów online · ' + WDL[start.getDay()] + ', ' + start.getDate() + ' ' + MON[start.getMonth()] + ' · ' + hm(start) + '–' + hm(parse(v.end)) + '</p>' +
+      '<dl class="dl"><dt>Usługa</dt><dd>' + esc(v.serviceName || "–") + '</dd>' +
+      (price != null ? '<dt>Cena</dt><dd>' + zl(price) + '</dd>' : "") +
+      '<dt>Telefon</dt><dd class="phone">' + esc(phoneFmt(v.phone)) + '</dd>' +
+      '<dt>Klientka</dt><dd>' + (known ? "Jest w bazie: " + esc(known.name) : "Nowa, zostanie dodana do klientek") + '</dd>' +
+      (v.note ? '<dt>Wiadomość</dt><dd>' + esc(v.note) + '</dd>' : "") + '</dl>' +
+      clash.map(x => '<p class="warn">Nakłada się na: ' + esc(x.clientName || x.title) + ', ' + hm(parse(x.start)) + '–' + hm(parse(x.end)) + '</p>').join("") +
+      '<div class="actions"><button type="button" class="btn" id="rAcc">Akceptuj</button><button type="button" class="btn danger" id="rRej">Odrzuć</button></div>' +
+      '<label class="check2"><input type="checkbox" id="rNotify" checked> Przy odrzuceniu wyślij SMS z linkiem do wyboru innego terminu</label>' +
+      '<p class="err" id="rErr" hidden></p>' +
+      '<p class="note">Po akceptacji klientka dostanie SMS z potwierdzeniem, a wizyta trafi do kalendarza jako potwierdzona.</p>',
+      sh => {
+        const err = $("#rErr", sh);
+        const fail = e => { err.textContent = e.message; err.hidden = false; };
+        const acc = $("#rAcc", sh), rej = $("#rRej", sh);
+        acc.onclick = () => busy(acc, "Akceptuję…", async () => {
+          try {
+            const r = await api("acceptRequest", { id: v.id });
+            if (r.client) db.clients.push(r.client);
+            upsertVisit(r.visit); persist(); closeSheet(); render();
+            toast(r.warn || (r.smsNow ? "Zaakceptowano, SMS wysłany" : "Zaakceptowano"));
+          } catch (e) { fail(e); }
+        });
+        rej.onclick = () => {
+          if (!rejArmed) { rejArmed = true; rej.textContent = "Dotknij ponownie, żeby odrzucić"; return; }
+          busy(rej, "Odrzucam…", async () => {
+            try {
+              const r = await api("rejectRequest", { id: v.id, notify: $("#rNotify", sh).checked });
+              db.visits = db.visits.filter(x => x.id !== v.id); persist(); closeSheet(); render();
+              toast(r.warn || "Prośba odrzucona");
+            } catch (e) { fail(e); }
+          });
+        };
+      });
+  }
+
+  // ---------- godziny pracy, zapisy online, SMS po wizycie ----------
+  const DAYS_ORDER = [1, 2, 3, 4, 5, 6, 0];
+  const HOUR_OPTS = []; for (let m = 6 * 60; m <= 22 * 60; m += 15) HOUR_OPTS.push(pad(Math.floor(m / 60)) + ":" + pad(m % 60));
+  function hourSelect(id, val, disabled, label) {
+    const opts = HOUR_OPTS.includes(val) ? HOUR_OPTS : HOUR_OPTS.concat(val).sort();
+    return '<select id="' + id + '"' + (disabled ? " disabled" : "") + ' aria-label="' + label + '">' +
+      opts.map(o => '<option' + (o === val ? " selected" : "") + '>' + o + '</option>').join("") + '</select>';
+  }
+  function openBookingSettings() {
+    const s = Object.assign({ hours: [null, ["09:00", "18:00"], ["09:00", "18:00"], ["09:00", "18:00"], ["09:00", "18:00"], ["09:00", "18:00"], ["09:00", "14:00"]], step: 30, bookingOn: true, bookingDays: 30, minNoticeH: 12, afterOn: false, afterHours: 2, reviewUrl: "" }, config.settings || {});
+    const bookUrl = config.bookUrl || (location.origin + location.pathname.replace(/[^/]*$/, "") + "book/");
+    openSheet(
+      '<h3>Godziny i zapisy</h3><p class="sub">Według godzin pracy strona zapisów pokazuje wolne terminy. Zajęte są wszystkie wydarzenia w kalendarzu „Wizyty”, także całodniowe (np. urlop).</p>' +
+      '<form class="form" id="bsf" novalidate>' +
+      '<div class="f"><label>Godziny pracy</label><div class="hours">' +
+      DAYS_ORDER.map(d => {
+        const h = s.hours[d];
+        return '<div class="hrow"><label class="hday"><input type="checkbox" id="hOn' + d + '"' + (h ? " checked" : "") + '> ' + WDL[d].charAt(0).toUpperCase() + WDL[d].slice(1) + '</label>' +
+          hourSelect("hFrom" + d, h ? h[0] : "09:00", !h, "Od") +
+          '<span class="dash">–</span>' + hourSelect("hTo" + d, h ? h[1] : "17:00", !h, "Do") + '</div>';
+      }).join("") + '</div></div>' +
+      '<hr class="sep" style="margin:6px 0">' +
+      '<label class="toggle"><input type="checkbox" id="bOn"' + (s.bookingOn ? " checked" : "") + '><span><b>Zapisy online</b><br>Klientki wysyłają prośby o wizytę, a Ty je akceptujesz.</span></label>' +
+      '<div class="f"><label>Link do zapisów (np. na Instagram, Facebook, wizytówkę)</label><div class="copyrow"><input id="bUrl" readonly value="' + esc(bookUrl) + '"><button type="button" class="btn ghost small" id="bCopy">Kopiuj</button></div></div>' +
+      '<div class="three">' +
+      '<div class="f"><label for="bStep">Godziny co</label><select id="bStep">' + [15, 30, 60].map(n => '<option value="' + n + '"' + (s.step === n ? " selected" : "") + '>' + n + ' min</option>').join("") + '</select></div>' +
+      '<div class="f"><label for="bDays">Dni do przodu</label><input id="bDays" type="number" inputmode="numeric" min="1" max="90" value="' + s.bookingDays + '"></div>' +
+      '<div class="f"><label for="bNotice">Wyprzedzenie (h)</label><input id="bNotice" type="number" inputmode="numeric" min="0" max="168" value="' + s.minNoticeH + '"></div></div>' +
+      '<p class="note" style="margin:0">Usług z kategorii „Dodatki” nie da się zarezerwować samodzielnie.</p>' +
+      '<hr class="sep" style="margin:6px 0">' +
+      '<label class="toggle"><input type="checkbox" id="aOn"' + (s.afterOn ? " checked" : "") + '><span><b>SMS po wizycie</b><br>Podziękowanie i prośba o opinię Google, wysyłane między 9 a 21.</span></label>' +
+      '<div class="f"><label for="aUrl">Link do opinii Google</label><input id="aUrl" type="url" value="' + esc(s.reviewUrl) + '" placeholder="https://g.page/r/…/review"></div>' +
+      '<p class="note" style="margin:0">Link znajdziesz w Profilu Firmy w Google: „Poproś o opinie” → Kopiuj link.</p>' +
+      '<div class="f" style="max-width:220px"><label for="aHours">Ile godzin po wizycie</label><input id="aHours" type="number" inputmode="numeric" min="1" max="48" value="' + s.afterHours + '"></div>' +
+      '<p class="err" id="bsErr" hidden></p>' +
+      '<div class="actions"><button type="submit" class="btn" id="bsSave">Zapisz</button><button type="button" class="btn ghost" id="bsCancel">Anuluj</button></div></form>',
+      sh => {
+        DAYS_ORDER.forEach(d => $("#hOn" + d, sh).addEventListener("change", e => { $("#hFrom" + d, sh).disabled = $("#hTo" + d, sh).disabled = !e.target.checked; }));
+        $("#bsCancel", sh).onclick = closeSheet;
+        $("#bCopy", sh).onclick = async () => {
+          const inp = $("#bUrl", sh);
+          try { await navigator.clipboard.writeText(inp.value); toast("Skopiowano link do zapisów"); }
+          catch (e) { inp.select(); toast("Zaznaczono link, skopiuj go ręcznie"); }
+        };
+        $("#bsf", sh).addEventListener("submit", e => {
+          e.preventDefault();
+          const er = $("#bsErr", sh); er.hidden = true;
+          const hours = [0, 1, 2, 3, 4, 5, 6].map(d => $("#hOn" + d, sh).checked ? [$("#hFrom" + d, sh).value, $("#hTo" + d, sh).value] : null);
+          const bad = hours.findIndex(h => h && !(h[0] && h[1] && h[0] < h[1]));
+          if (bad >= 0) { er.textContent = "Sprawdź godziny: " + WDL[bad] + " (koniec musi być po początku)."; er.hidden = false; return; }
+          const settings = {
+            hours, step: Number($("#bStep", sh).value), bookingOn: $("#bOn", sh).checked,
+            bookingDays: Number($("#bDays", sh).value), minNoticeH: Number($("#bNotice", sh).value),
+            afterOn: $("#aOn", sh).checked, reviewUrl: $("#aUrl", sh).value.trim(), afterHours: Number($("#aHours", sh).value)
+          };
+          busy($("#bsSave", sh), "Zapisywanie…", async () => {
+            try {
+              const r = await api("saveSettings", { settings });
+              config.settings = r.settings; persist(); closeSheet(); toast("Zapisano ustawienia");
+            } catch (e2) { er.textContent = e2.message; er.hidden = false; }
+          });
+        });
+      });
+  }
+
+  // ---------- kopia zapasowa ----------
+  function fmtStamp(s) {
+    if (!s) return null;
+    const d = parse(s), today = todayD(), diff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - today) / 864e5);
+    return (diff === 0 ? "dziś" : diff === -1 ? "wczoraj" : dm(d) + "." + d.getFullYear()) + ", " + hm(d);
+  }
+  function backupSummary() {
+    const last = fmtStamp(config.lastBackup);
+    const mail = (config.settings || {}).backupEmail;
+    return (last ? "Ostatnia kopia: " + last : "Kopia codziennie ok. 3:00 na Dysk") + (mail ? "" : " · brak adresu na kopię mailową");
+  }
+  function openBackupSettings() {
+    const s = config.settings || {};
+    openSheet(
+      '<h3>Kopia zapasowa</h3>' +
+      '<p class="sub">Codziennie ok. 3:00 skrypt zapisuje kopię wizyt, klientek i usług na Twoim Dysku Google w folderze „Manicure Studio – kopie” (14 ostatnich dni i 12 miesięcy). W poniedziałki ta sama kopia przychodzi mailem jako plik Excel na adres poniżej.</p>' +
+      '<dl class="dl"><dt>Kopia na Dysku</dt><dd id="bkLast">' + esc(fmtStamp(config.lastBackup) || "jeszcze nie było") + '</dd>' +
+      '<dt>Kopia mailem</dt><dd id="bkLastMail">' + esc(fmtStamp(config.lastBackupMail) || "jeszcze nie było") + '</dd></dl>' +
+      '<form class="form" id="bkf" novalidate>' +
+      '<div class="f"><label for="bkMail">Adres na cotygodniową kopię</label><input id="bkMail" type="email" inputmode="email" autocomplete="off" value="' + esc(s.backupEmail || "") + '" placeholder="np. salon.kopie@gmail.com"></div>' +
+      '<p class="note" style="margin:0">Użyj innego konta niż to, na którym działa aplikacja, np. osobnego Gmaila tylko na kopie. Wtedy dane przetrwają nawet utratę dostępu do głównego konta. Plik zawiera dane klientek, więc nie przekazuj go dalej.</p>' +
+      '<p class="err" id="bkErr" hidden></p><p class="okmsg" id="bkOk" hidden></p>' +
+      '<div class="actions"><button type="submit" class="btn" id="bkSave">Zapisz adres</button><button type="button" class="btn ghost" id="bkNow">Zrób kopię teraz</button></div>' +
+      '</form>',
+      sh => {
+        const er = $("#bkErr", sh), ok = $("#bkOk", sh);
+        const show = (el, m) => { er.hidden = ok.hidden = true; el.textContent = m; el.hidden = false; };
+        $("#bkf", sh).addEventListener("submit", e => {
+          e.preventDefault();
+          const mail = $("#bkMail", sh).value.trim();
+          if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return show(er, "Sprawdź adres e-mail.");
+          busy($("#bkSave", sh), "Zapisywanie…", async () => {
+            try { const r = await api("saveSettings", { settings: { backupEmail: mail } }); config.settings = r.settings; persist(); show(ok, mail ? "Zapisano. Kopie będą przychodzić w poniedziałki." : "Zapisano. Kopia mailowa wyłączona."); }
+            catch (e2) { show(er, e2.message); }
+          });
+        });
+        $("#bkNow", sh).onclick = () => busy($("#bkNow", sh), "Robię kopię…", async () => {
+          try {
+            const mail = $("#bkMail", sh).value.trim();
+            if (mail !== ((config.settings || {}).backupEmail || "")) {
+              const r0 = await api("saveSettings", { settings: { backupEmail: mail } }); config.settings = r0.settings;
+            }
+            const r = await api("backupNow");
+            config.lastBackup = r.lastBackup; config.lastBackupMail = r.lastBackupMail; persist();
+            $("#bkLast", sh).textContent = fmtStamp(r.lastBackup) || "jeszcze nie było";
+            $("#bkLastMail", sh).textContent = fmtStamp(r.lastBackupMail) || "jeszcze nie było";
+            show(ok, "Kopia zapisana na Dysku" + (r.emailed ? " i wysłana na " + config.settings.backupEmail + "." : ". Wpisz adres, żeby dostawać ją też mailem."));
+          } catch (e2) { show(er, e2.message); }
+        });
       });
   }
 
@@ -651,8 +818,8 @@
 
     const row = v => {
       const d = parse(v.start), st = statusOf(v), price = priceOf(v);
-      const side = st.k === "no" || st.k === "ok" || st.k === "sent" || st.k === "wait" && next.includes(v)
-        ? '<span class="pill ' + st.k + '">' + esc(st.k === "wait" ? "Zaplanowana" : st.k === "sent" ? "SMS wysłany" : st.t) + '</span>'
+      const side = st.k === "no" || st.k === "ok" || st.k === "sent" || st.k === "req" || st.k === "wait" && next.includes(v)
+        ? '<span class="pill ' + st.k + '">' + esc(st.k === "wait" ? "Zaplanowana" : st.k === "sent" ? "SMS wysłany" : st.k === "req" ? "Prośba" : st.t) + '</span>'
         : (price != null ? zl(price) : "");
       return '<button type="button" class="row" data-hv="' + esc(v.id) + '"><span class="main"><b>' + esc(v.serviceName || v.title) + '</b><span>' + fullDate(d) + '</span></span><span class="side">' + side + '</span></button>';
     };
@@ -795,7 +962,10 @@
       '<div class="f" style="margin-top:14px"><label>Tło</label><div class="seg" id="modeSeg">' +
         [["auto", "Jak w telefonie"], ["light", "Jasne"], ["dark", "Ciemne"]].map(([m, n]) =>
           '<button type="button" data-m="' + m + '" aria-pressed="' + (mode === m) + '">' + n + '</button>').join("") +
-      '</div></div><hr class="sep">' +
+      '</div></div>' +
+      (cfg ? '<button type="button" class="linkrow" id="openBooking"><span><b>Godziny pracy i zapisy online</b><br>Wolne terminy, link dla klientek, SMS po wizycie</span><span aria-hidden="true">›</span></button>' +
+        '<button type="button" class="linkrow" id="openBackup" style="margin-top:8px"><span><b>Kopia zapasowa</b><br>' + esc(backupSummary()) + '</span><span aria-hidden="true">›</span></button>' : "") +
+      '<hr class="sep">' +
       '<p class="sub">Połączenie z Kalendarzem Google i bramką SMS.</p>' +
       '<form class="form" id="setf" novalidate>' +
       '<div class="f"><label for="setCode">Kod konfiguracji</label><textarea id="setCode" placeholder="Wklej kod z maila (opcjonalnie)" style="min-height:56px"></textarea></div>' +
@@ -810,6 +980,8 @@
         '<p class="note">Test wysyła prawdziwy SMS przez SMSAPI, także w trybie testowym. Kosztuje tyle co jeden SMS.</p></form>' : "") +
       '<p class="note">' + (config.dryRun ? "Skrypt działa w trybie testowym (DRY_RUN)." : cfg ? "Przypomnienia SMS są włączone." : "") + '</p>',
       sh => {
+        const ob = $("#openBooking", sh); if (ob) ob.onclick = openBookingSettings;
+        const obk = $("#openBackup", sh); if (obk) obk.onclick = openBackupSettings;
         sh.querySelectorAll("#modeSeg button").forEach(b => b.addEventListener("click", () => {
           applyMode(b.dataset.m);
           sh.querySelectorAll("#modeSeg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
